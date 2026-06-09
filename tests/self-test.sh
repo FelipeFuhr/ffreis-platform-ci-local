@@ -57,5 +57,25 @@ python3 "$scripts/ci-local-coverage.py" --registry "$scripts/ci-local-tools.tsv"
   --workflows "$work/wf" --findings "$work/findings" --json >/dev/null 2>&1 && a=ok || a=no
 check "$a" ok "coverage --json emits valid output"
 
+# ── fixture 3: sonar issues → SARIF → through the aggregator ──────────────────
+echo "[self-test] sonar-issues-to-sarif.py"
+conv="$root/backends/sonarqube/sonar-issues-to-sarif.py"
+cat > "$work/sonar-issues.json" <<'EOF'
+{"issues":[
+{"rule":"go:S1192","severity":"CRITICAL","component":"p:internal/foo.go","line":42,"message":"dup literal"},
+{"rule":"secrets:S6290","severity":"BLOCKER","component":"p:config.go","textRange":{"startLine":7},"message":"token leak"}]}
+EOF
+python3 "$conv" "$work/sonar-issues.json" "$work/sonar-conv.sarif" p >/dev/null 2>&1 && a=ok || a=no
+check "$a" ok "converter writes SARIF"
+python3 - "$work/sonar-conv.sarif" <<'PY' && a=ok || a=no
+import json,sys
+d=json.load(open(sys.argv[1])); r=d["runs"][0]
+assert r["tool"]["driver"]["name"]=="sonar"
+levels={x["level"] for x in r["results"]}
+assert "error" in levels  # BLOCKER+CRITICAL → error
+assert r["results"][1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]=="config.go"
+PY
+check "$a" ok "converter: driver=sonar, BLOCKER/CRITICAL→error, component path stripped"
+
 if [[ "$fail" -ne 0 ]]; then echo "[self-test] FAILED"; exit 1; fi
 echo "[self-test] all checks passed"

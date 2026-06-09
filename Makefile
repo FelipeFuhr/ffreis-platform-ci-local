@@ -7,7 +7,7 @@ SCRIPTS := $(shell find scripts/ -maxdepth 1 -name '*.sh' ! -type l 2>/dev/null 
 PYFILES := $(shell find scripts/ -maxdepth 1 -name '*.py' ! -type l 2>/dev/null | sort)
 BATS_FILES := $(wildcard tests/*.bats)
 
-.PHONY: help ci lint shellcheck py-check shfmt-check test self-test ci-local
+.PHONY: help ci lint shellcheck py-check shfmt-check test self-test ci-local sonarqube-up sonarqube-down
 
 help:
 	@echo "ffreis-platform-ci-local targets:"
@@ -64,3 +64,13 @@ self-test:
 # Dogfood the harness on this repo. `make ci-local ARGS=--findings` etc.
 ci-local:
 	@bash scripts/run-ci-local.sh $(ARGS)
+
+# Local SonarQube server lifecycle (the Lane-B sonar backend). Boot once and
+# reuse across runs; tear down when done. Refuses to boot below safe RAM/disk.
+sonarqube-up:
+	@bash -c 'source backends/sonarqube/backend.sh; \
+	  out=$$(sonar_local_up) && echo "SonarQube UP at $$SONAR_URL — analysis token: $$out" \
+	  || { echo "SonarQube not started: $$out"; exit 1; }'
+
+sonarqube-down:
+	@bash -c 'source backends/sonarqube/backend.sh; sonar_local_down; echo "SonarQube server removed."'
