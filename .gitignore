@@ -1,0 +1,24 @@
+# The harness writes here when dogfooded on this repo; never commit it.
+/.ci-local/
+
+# Python bytecode (the helpers are stdlib scripts).
+__pycache__/
+*.pyc
+*.pyo
+
+# Sonar scanner scratch (Phase B local-analysis runs).
+.scannerwork/
+
+# Editor / OS noise.
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.bak
+*.bak.*
+
+# Local-only overrides.
+local.mk
+.env
+.env.local

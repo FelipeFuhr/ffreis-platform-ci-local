@@ -1,0 +1,46 @@
+# ci-local-tools.tsv — fleet tool registry for the local-CI findings harness.
+#
+# One row per findings-producing CI tool. Drives two things:
+#   1. Lane-B dispatch (ci-local-laneB.sh runs lane=B tools by their own CLI,
+#      since act can't).
+#   2. The completeness assertion (ci-local-coverage.py reconciles "tools this
+#      repo's workflows reference" against "tools the local run accounted for",
+#      so no CI tool fails silently).
+#
+# Tab-separated. Columns:
+#   tool             canonical tool name (also the SARIF/output basename)
+#   lane             A      = act runs it (Lane A; classified from the act log)
+#                    B      = direct-CLI (Lane B; act can't — run it ourselves)
+#                    cannot = no faithful local run exists (record loud + reason)
+#   workflow_pattern egrep pattern matched against .github/workflows/*.yml to
+#                    decide "this tool is in THIS repo's CI". Matches the
+#                    reusable-workflow filename or action ref — bare tool names
+#                    do NOT appear in callers (the fleet calls
+#                    ffreis-workflows-*/...@SHA), so key on the stable ref.
+#   probe            space-separated paths; the tool is locally-applicable if
+#                    ANY exists (used by Lane-B dispatch). "-" = always.
+#   reason           why a lane=cannot tool has no local equivalent, or the
+#                    note shown when a lane=B tool's binary/backend is absent.
+#
+# Lint/fmt/test/build/coverage/mutation jobs are intentionally absent: act runs
+# them and the job classifier already catches them loudly. This registry tracks
+# the security/quality scanners — the ones that fail silently.
+#
+# tool	lane	workflow_pattern	probe	reason
+golangci-lint	A	go-lint|golangci	go.mod	-
+govulncheck	A	go-security|govulncheck	go.mod	-
+semgrep	A	semgrep	-	-
+gitleaks	A	gitleaks	-	-
+trivy	A	trivy|scan-trivy-fs	go.mod Cargo.toml package.json	-
+grype	A	grype|scan-grype-fs	go.mod Cargo.toml package.json	-
+osv-scanner	A	osv-scanner	-	-
+clippy	A	rust-lint|clippy	Cargo.toml	-
+cargo-deny	A	rust-deny|cargo-deny	Cargo.toml	-
+cargo-audit	A	rust-security|cargo-audit	Cargo.toml	-
+pip-audit	A	pip-audit|python-security	pyproject.toml requirements.txt	-
+codeql	B	codeql	-	codeql CLI not installed (run `gh extension install github/gh-codeql` or install the CodeQL CLI bundle)
+sonar	B	sonar|sonarcloud|code-quality	sonar-project.properties	local SonarQube not reachable (the harness starts one from .mcp.json; see --sonar-cloud for the SonarCloud path)
+scorecard	cannot	scorecard	-	measures repo settings via the GitHub API — no local code-scan equivalent
+snyk	cannot	snyk	-	needs SNYK_TOKEN + the Snyk SaaS backend
+claude-judge	cannot	claude-judge|claude-review	-	needs the Anthropic API and PR context
+dependency-review	cannot	dependency-review	-	GitHub-only API that diffs a PR's dependency manifest
