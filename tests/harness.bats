@@ -50,3 +50,16 @@ EOF
     --workflows "$REPO/.github/workflows" --enforce --no-color
   [ "$status" -eq 0 ]
 }
+
+@test "drift gate --defines: an unclassified reusable workflow a lib DEFINES fails" {
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/wf"
+  printf 'on:\n  workflow_call:\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps: []\n' \
+    > "$tmp/wf/go-brandnewscan.yml"
+  printf 'on:\n  workflow_call:\njobs: {}\n' > "$tmp/wf/self-test.yml"  # meta, excluded
+  run python3 "$SCRIPTS/ci-local-drift.py" --registry "$SCRIPTS/ci-local-tools.tsv" \
+    --workflows "$tmp/wf" --defines --enforce --no-color
+  rm -rf "$tmp"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"go-brandnewscan"* ]]
+  [[ "$output" != *"self-test"* ]]   # meta workflow excluded
+}

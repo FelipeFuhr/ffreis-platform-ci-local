@@ -49,7 +49,7 @@ def load_registry(path: Path) -> list[dict]:
 
 
 def referenced_workflows(workflows_dir: Path) -> set[str]:
-    """Reusable-workflow basenames this repo's CI references."""
+    """Reusable-workflow basenames this repo's CI references (consumer mode)."""
     refs: set[str] = set()
     if not workflows_dir.is_dir():
         return refs
@@ -61,6 +61,30 @@ def referenced_workflows(workflows_dir: Path) -> set[str]:
         for rx in (RE_REMOTE, RE_LOCAL):
             refs.update(m.lower() for m in rx.findall(text))
     return refs
+
+
+# Meta/infra workflows a lib may define that are NOT fleet reusable tools.
+META_WORKFLOWS = {"self-test", "ci", "release-please", "renovate", "release-please-manifest"}
+
+
+def defined_workflows(workflows_dir: Path) -> set[str]:
+    """Reusable-workflow basenames a LIBRARY defines (files with on: workflow_call).
+    Used by a workflow-lib's self-test: adding a new reusable workflow must be
+    classified in the registry or the gate fails — catching drift at the source.
+    Meta/infra workflows (self-test, ci, release-please, …) are excluded."""
+    defs: set[str] = set()
+    if not workflows_dir.is_dir():
+        return defs
+    for wf in sorted(workflows_dir.glob("*.y*ml")):
+        if wf.stem.lower() in META_WORKFLOWS:
+            continue
+        try:
+            text = wf.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if re.search(r"^\s*workflow_call:", text, re.M):
+            defs.add(wf.stem.lower())
+    return defs
 
 
 def classify(refs: set[str], registry: list[dict]) -> tuple[dict, list[str]]:
@@ -109,12 +133,16 @@ def main():
     ap.add_argument("--workflows", required=True)
     ap.add_argument("--enforce", action="store_true", help="exit non-zero on any drift")
     ap.add_argument("--warn", action="store_true", help="report only (default)")
+    ap.add_argument("--defines", action="store_true",
+                    help="library mode: check the reusable workflows this dir DEFINES "
+                         "(on: workflow_call), not the ones it references")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-color", action="store_true")
     args = ap.parse_args()
 
     registry = load_registry(Path(args.registry))
-    refs = referenced_workflows(Path(args.workflows))
+    refs = (defined_workflows(Path(args.workflows)) if args.defines
+            else referenced_workflows(Path(args.workflows)))
     classified, unclassified = classify(refs, registry)
 
     if args.json:
