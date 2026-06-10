@@ -77,5 +77,35 @@ assert r["results"][1]["locations"][0]["physicalLocation"]["artifactLocation"]["
 PY
 check "$a" ok "converter: driver=sonar, BLOCKER/CRITICAL→error, component path stripped"
 
+# ── fixture 4: remediation planner groups by category ────────────────────────
+echo "[self-test] ci-local-remediate.py"
+mkdir -p "$work/rem/findings"
+cat > "$work/rem/findings/gitleaks.sarif" <<'EOF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"gitleaks"}},"results":[{"ruleId":"github-pat","level":"error","message":{"text":"leak"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"a.env"},"region":{"startLine":2}}}]}]}]}
+EOF
+cat > "$work/rem/findings/trivy.sarif" <<'EOF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Trivy"}},"results":[{"ruleId":"CVE-1","level":"error","message":{"text":"vuln"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":5}}}]}]}]}
+EOF
+remout="$(python3 "$root/scripts/ci-local-remediate.py" "$work/rem" --repo demo 2>&1 || true)"
+echo "$remout" | grep -q 'category=secrets' && a=ok || a=no   # 2 categories ⇒ QUEUED + labels
+check "$a" ok "remediate groups gitleaks → secrets category"
+echo "$remout" | grep -q 'category=deps' && a=ok || a=no
+check "$a" ok "remediate groups trivy → deps category"
+echo "$remout" | grep -qi 'QUEUED' && a=ok || a=no
+check "$a" ok "remediate: 2 error-categories ⇒ QUEUED prompts"
+
+# ── fixture 5: --strict gates on a SARIF-native scanner being UNACCOUNTED ─────
+echo "[self-test] coverage --strict"
+mkdir -p "$work/wf2" "$work/empty"
+cat > "$work/wf2/sec.yml" <<'EOF'
+jobs:
+  t: { uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-trivy-fs.yml@x }
+EOF
+echo '{"jobs":{}}' > "$work/run2.json"   # act ran, but no trivy SARIF captured
+python3 "$scripts/ci-local-coverage.py" --registry "$scripts/ci-local-tools.tsv" \
+  --workflows "$work/wf2" --findings "$work/empty" --run-json "$work/run2.json" --strict --no-color \
+  >/dev/null 2>&1 && a=no || a=ok    # trivy UNACCOUNTED + --strict ⇒ exit 1
+check "$a" ok "coverage --strict fails when a SARIF-native scanner is UNACCOUNTED"
+
 if [[ "$fail" -ne 0 ]]; then echo "[self-test] FAILED"; exit 1; fi
 echo "[self-test] all checks passed"

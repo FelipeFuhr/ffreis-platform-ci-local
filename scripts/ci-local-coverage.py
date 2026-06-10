@@ -159,6 +159,10 @@ def main():
     ap.add_argument("--lane-b", help="lane-b.json from ci-local-laneB.sh")
     ap.add_argument("--run-json", help="run.json from the act classifier (presence ⇒ act ran)")
     ap.add_argument("--json", action="store_true", help="emit the coverage as JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit non-zero if a SARIF-native scanner is UNACCOUNTED "
+                         "(a real local-capture failure, e.g. the trivy-action PATH bug) — "
+                         "ignores stdout-only linters whose SARIF lands via Phase 2")
     ap.add_argument("--no-color", action="store_true")
     args = ap.parse_args()
 
@@ -177,13 +181,24 @@ def main():
 
     rows, unaccounted = build_coverage(registry, in_ci, sarif_counts, lane_b, act_ran)
 
+    # SARIF-native scanners emit SARIF under act TODAY; if one is UNACCOUNTED it's
+    # a real local-capture failure worth gating. Stdout-only linters are expected
+    # UNACCOUNTED until Phase 2 wires their SARIF, so --strict ignores them.
+    sarif_native = {"trivy", "grype", "gitleaks", "osv-scanner", "semgrep"}
+    strict_breach = sorted(t for t in unaccounted if t in sarif_native)
+
     if args.json:
         print(json.dumps({"coverage": [{"tool": t, "bucket": b, "detail": d}
                                        for t, b, d in rows],
-                          "unaccounted": unaccounted}, indent=2))
-        return 0
+                          "unaccounted": unaccounted,
+                          "strict_breach": strict_breach}, indent=2))
+        return 1 if (args.strict and strict_breach) else 0
 
     render(rows, unaccounted, sys.stdout.isatty() and not args.no_color)
+    if args.strict and strict_breach:
+        print(f"\nSTRICT: {len(strict_breach)} SARIF-native scanner(s) UNACCOUNTED "
+              f"({', '.join(strict_breach)}) — local capture failed, not just missing.")
+        return 1
     return 0
 
 

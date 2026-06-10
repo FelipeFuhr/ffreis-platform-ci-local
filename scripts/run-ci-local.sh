@@ -22,6 +22,10 @@
 #   run-ci-local.sh --full              # everything: act (Lane A) + Lane B + findings
 #   run-ci-local.sh --sonar-cloud       # Sonar via SonarCloud PR analysis (public
 #                                       #   repos) instead of the local container
+#   run-ci-local.sh --strict            # also fail if a SARIF-native scanner ran
+#                                       #   but produced no local finding (capture gap)
+#   run-ci-local.sh --remediate         # print an action plan (inline / queued
+#                                       #   fix-prompts) from the findings
 #   run-ci-local.sh -W path/to/wf.yml   # one workflow (passthrough)
 #   run-ci-local.sh -j go-lint          # one job (passthrough)
 #   run-ci-local.sh -- --rm             # everything after `--` goes to act
@@ -46,6 +50,8 @@ mode=full
 findings=no
 lane_b=no             # no | yes | only  — Lane-B direct-CLI scanners (codeql, sonar)
 sonar_backend=local   # local (SonarQube container) | cloud (SonarCloud PR analysis)
+strict=no             # gate on a SARIF-native scanner being UNACCOUNTED
+remediate=no          # emit a remediation plan after the findings report
 act_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -56,7 +62,9 @@ while [[ $# -gt 0 ]]; do
     --lane-b) findings=yes; lane_b=yes; shift ;;
     --lane-b-only) findings=yes; lane_b=only; shift ;;
     --sonar-cloud) sonar_backend=cloud; shift ;;
-    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --strict) strict=yes; shift ;;
+    --remediate) remediate=yes; shift ;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; act_args+=("$@"); break ;;
     *)  act_args+=("$1"); shift ;;
   esac
@@ -368,17 +376,26 @@ PY
   # ── Completeness assertion: every CI tool accounted for; nothing silent ────
   cov="$(resolve_sibling ci-local-coverage.py || true)"
   [[ -z "$registry_path" ]] && registry_path="$(resolve_sibling ci-local-tools.tsv || true)"
+  cov_rc=0
   if [[ -n "$cov" && -n "$registry_path" ]]; then
     echo
     cov_args=(--registry "$registry_path" --workflows "$repo_root/.github/workflows" --findings "$cil/findings")
     [[ "$act_ran" == yes ]] && cov_args+=(--run-json "$cil/run.json")
     [[ -f "$cil/lane-b.json" ]] && cov_args+=(--lane-b "$cil/lane-b.json")
-    python3 "$cov" "${cov_args[@]}" || true
+    [[ "$strict" == yes ]] && cov_args+=(--strict)
+    python3 "$cov" "${cov_args[@]}" || cov_rc=$?
+  fi
+
+  # ── Remediation plan: findings → an action plan (inline / queued / parallel) ─
+  if [[ "$remediate" == yes ]]; then
+    rem="$(resolve_sibling ci-local-remediate.py || true)"
+    if [[ -n "$rem" ]]; then echo; python3 "$rem" "$cil" --repo "$repo_root" || true; fi
   fi
 
   [[ "${real_fail:-0}" -gt 0 ]] \
     && die "$real_fail job(s) had a REAL failure (not just a GitHub-only upload). See run-state above."
   [[ "$agg_rc" -ne 0 ]] && die "error-level findings present (see the report above)."
+  [[ "$cov_rc" -ne 0 ]] && die "strict coverage gate: a SARIF-native scanner did not run locally (see above)."
   info "Local findings gate passed. Reports under $cil/"
   exit 0
 fi
