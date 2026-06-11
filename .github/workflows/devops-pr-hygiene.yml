@@ -1,0 +1,20 @@
+name: DevOps / PR Hygiene
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-pr:
+    permissions: { pull-requests: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semantic-pr.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+  labeler:
+    permissions: { contents: read, pull-requests: write }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-labeler.yml@12c41714d56ff512e8093cd96a2ab11e60aced17

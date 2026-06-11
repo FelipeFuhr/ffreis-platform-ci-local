@@ -1,0 +1,45 @@
+name: DevOps / Security
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 5 25-31 * 0"  # last Sunday of month
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { working-directory: ".", scan-history: true, upload-sarif: false }
+  trivy-fs:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-trivy-fs.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { scan-ref: ".", upload-sarif: false }
+  grype-fs:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { path: ".", upload-sarif: false }
+  osv:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-osv-scanner.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { working-directory: ".", upload-sarif: false }
+  semgrep:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { working-directory: "." }
+  codeql:
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions: { actions: read, contents: read, security-events: write }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    with: { languages: "python", source-root: "." }

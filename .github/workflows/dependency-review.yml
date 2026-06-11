@@ -1,0 +1,14 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: { contents: read, pull-requests: read }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-dependency-review.yml@12c41714d56ff512e8093cd96a2ab11e60aced17

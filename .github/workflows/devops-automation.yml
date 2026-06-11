@@ -1,0 +1,15 @@
+name: DevOps / Automation
+
+on:
+  schedule:
+    - cron: "0 3 25-31 * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    if: ${{ vars.STALE_ENABLED == 'true' }}
+    permissions: { issues: write, pull-requests: write }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-stale.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
