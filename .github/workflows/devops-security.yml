@@ -7,6 +7,8 @@ on:
     branches: [main]
   schedule:
     - cron: "0 5 25-31 * 0"  # last Sunday of month
+  workflow_dispatch:
+
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,30 +18,60 @@ jobs:
   gitleaks:
     if: ${{ !github.event.pull_request.draft }}
     permissions: { contents: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { working-directory: ".", scan-history: true, upload-sarif: false }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      working-directory: "."
+      scan-history: true
+      upload-sarif: false
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   trivy-fs:
-    if: ${{ !github.event.pull_request.draft }}
+    if: |
+      (vars.FLEET_SPOT_CI != 'true' || github.event_name == 'workflow_dispatch') &&
+      !github.event.pull_request.draft
     permissions: { contents: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-trivy-fs.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { scan-ref: ".", upload-sarif: false }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-trivy-fs.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      scan-ref: "."
+      upload-sarif: false
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   grype-fs:
-    if: ${{ !github.event.pull_request.draft }}
+    if: |
+      (vars.FLEET_SPOT_CI != 'true' || github.event_name == 'workflow_dispatch') &&
+      !github.event.pull_request.draft
     permissions: { contents: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { path: ".", upload-sarif: false }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      path: "."
+      upload-sarif: false
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   osv:
-    if: ${{ !github.event.pull_request.draft }}
+    if: |
+      (vars.FLEET_SPOT_CI != 'true' || github.event_name == 'workflow_dispatch') &&
+      !github.event.pull_request.draft
     permissions: { contents: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-osv-scanner.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { working-directory: ".", upload-sarif: false }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-osv-scanner.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      working-directory: "."
+      upload-sarif: false
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   semgrep:
     if: ${{ !github.event.pull_request.draft }}
     permissions: { contents: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { working-directory: "." }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-semgrep.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      working-directory: "."
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   codeql:
     if: ${{ github.event_name != 'pull_request' }}
     permissions: { actions: read, contents: read, security-events: write }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
-    with: { languages: "python", source-root: "." }
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
+    with:
+      languages: "python"
+      source-root: "."
+
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
