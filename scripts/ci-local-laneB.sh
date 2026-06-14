@@ -172,8 +172,10 @@ run_sonar() {
   # gate verdict from the local quality gate (ERROR ⇒ a failing gate)
   local gate=""
   [[ -f "$cil/sonar-gate.json" ]] && gate="$(sed -n 's/.*"status":"\([A-Z]*\)".*/\1/p' "$cil/sonar-gate.json" | head -1)"
-  local n
-  n="$(grep -co '"ruleId"' "$findings/sonar.sarif" 2>/dev/null || echo 0)"
+  local n=0
+  if [[ -f "$findings/sonar.sarif" ]]; then
+    n="$(grep -c '"ruleId"' "$findings/sonar.sarif" 2>/dev/null)" || n=0
+  fi
   if [[ "$gate" == "ERROR" || "$n" -gt 0 ]]; then
     record sonar found "$n issue(s); quality gate=${gate:-?} → sonar.sarif"
   else

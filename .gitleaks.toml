@@ -1,0 +1,5 @@
+[allowlist]
+description = "False positives — runtime variables, not hardcoded secrets"
+paths = [
+  "backends/sonarqube/backend.sh",
+]

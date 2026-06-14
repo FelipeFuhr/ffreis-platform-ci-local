@@ -91,13 +91,26 @@ sonar_local_up() {
 
 # sonar_local_run <repo_root> <token> — scan via the scanner container.
 # --network=host so the scanner reaches the host-published server on :9000.
+# Rootless podman UID-remapping means the scanner's /tmp/.scannerwork is
+# owned by a subordinate UID and not readable from the host. Bind-mount a
+# host tmpdir there so report-task.txt survives the run, then copy it to the
+# location sonar_local_collect expects ($repo/.scannerwork/).
 sonar_local_run() {
   local repo="$1" token="$2"
+  local work; work=$(mktemp -d); chmod 777 "$work"
+  local rc=0
   "$CONTAINER_CMD" run --rm --network=host \
     -e SONAR_HOST_URL="$SONAR_URL" \
     -e SONAR_TOKEN="$token" \
-    -v "${repo}:/usr/src:rw" \
-    "$SCANNER_IMAGE" >/dev/null 2>&1
+    -v "${repo}:/usr/src:rw,z" \
+    -v "${work}:/tmp/.scannerwork:rw,z" \
+    "$SCANNER_IMAGE" >/dev/null 2>&1 || rc=$?
+  if [[ -f "$work/report-task.txt" ]]; then
+    mkdir -p "$repo/.scannerwork"
+    cp "$work/report-task.txt" "$repo/.scannerwork/report-task.txt"
+  fi
+  rm -rf "$work"
+  return $rc
 }
 
 # sonar_local_collect <repo_root> <cil_dir> <token> — gate + issues → SARIF.
