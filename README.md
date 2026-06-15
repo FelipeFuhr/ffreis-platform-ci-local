@@ -1,5 +1,9 @@
 # ffreis-platform-ci-local
 
+<!-- ffreis-badges:start -->
+[![CI](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/FelipeFuhr/ffreis-badges/main/badges/ffreis-platform-ci-local/ci.json)](https://github.com/FelipeFuhr/ffreis-platform-ci-local/actions) [![Latest version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/FelipeFuhr/ffreis-badges/main/badges/ffreis-platform-ci-local/version.json)](https://github.com/FelipeFuhr/ffreis-platform-ci-local/releases) [![License](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/FelipeFuhr/ffreis-badges/main/badges/ffreis-platform-ci-local/license.json)](https://github.com/FelipeFuhr/ffreis-platform-ci-local/blob/main/LICENSE)
+<!-- ffreis-badges:end -->
+
 The fleet's **local-CI harness**: run every CI check on your machine, capture
 all findings in one place, and guarantee no check silently falls off-local.
 
