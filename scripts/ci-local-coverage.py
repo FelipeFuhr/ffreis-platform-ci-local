@@ -96,6 +96,25 @@ def lane_a_accounted(findings_dir: Path) -> dict[str, int]:
     return counts
 
 
+def _classify_lane_b(tool: str, lane_b: dict, reason: str) -> tuple[str, str]:
+    lb = lane_b.get(tool)
+    if lb:
+        return lb.get("status", "direct"), lb.get("detail", "")
+    return "cannot-run", reason or "Lane-B tool not dispatched"
+
+
+def _classify_lane_a(tool: str, sarif_counts: dict, act_ran: bool) -> tuple[str, str]:
+    if tool in sarif_counts:
+        n = sarif_counts[tool]
+        return ("found" if n else "ran"), (f"{n} finding(s)" if n else "clean")
+    if act_ran:
+        return "UNACCOUNTED", (
+            "in CI but no local SARIF — act may not have triggered it "
+            "(workflow_dispatch-only / draft-gated / event mismatch)"
+        )
+    return "skipped", "act did not run (lane-b-only / no act)"
+
+
 def build_coverage(registry, in_ci, sarif_counts, lane_b, act_ran):
     """Classify every in-CI tool into a bucket. Returns (rows, unaccounted)."""
     by_tool = {r["tool"]: r for r in registry}
@@ -107,23 +126,14 @@ def build_coverage(registry, in_ci, sarif_counts, lane_b, act_ran):
             continue  # not a findings producer (build/test/fmt/housekeeping)
         if lane == "cannot":
             rows.append((tool, "cannot-run", reason))
-        elif lane == "B":
-            lb = lane_b.get(tool)
-            if lb:
-                rows.append((tool, lb.get("status", "direct"), lb.get("detail", "")))
-            else:
-                rows.append((tool, "cannot-run", reason or "Lane-B tool not dispatched"))
+            continue
+        if lane == "B":
+            bucket, detail = _classify_lane_b(tool, lane_b, reason)
         else:  # Lane A
-            if tool in sarif_counts:
-                n = sarif_counts[tool]
-                rows.append((tool, "found" if n else "ran", f"{n} finding(s)" if n else "clean"))
-            elif act_ran:
-                rows.append((tool, "UNACCOUNTED",
-                             "in CI but no local SARIF — act may not have triggered it "
-                             "(workflow_dispatch-only / draft-gated / event mismatch)"))
-                unaccounted.append(tool)
-            else:
-                rows.append((tool, "skipped", "act did not run (lane-b-only / no act)"))
+            bucket, detail = _classify_lane_a(tool, sarif_counts, act_ran)
+        rows.append((tool, bucket, detail))
+        if bucket == "UNACCOUNTED":
+            unaccounted.append(tool)
     return rows, unaccounted
 
 

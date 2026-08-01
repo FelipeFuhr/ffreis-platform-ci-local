@@ -142,6 +142,23 @@ def _location(res: dict):
     return file_, line
 
 
+def _findings_from_run(run: dict, path: Path) -> list[Finding]:
+    driver = (run.get("tool") or {}).get("driver") or {}
+    tool = driver.get("name") or driver.get("fullName") or path.stem
+    rule_list = driver.get("rules") or []
+    rules_by_id = {r.get("id"): r for r in rule_list if isinstance(r, dict) and r.get("id")}
+    out: list[Finding] = []
+    for res in run.get("results") or []:
+        if not isinstance(res, dict):
+            continue
+        rid = _rule_id(res, rule_list)
+        sev = apply_floor(tool, _result_severity(res, rules_by_id.get(rid, {})))
+        msg = ((res.get("message") or {}).get("text") or "").strip().replace("\n", " ")
+        file_, line = _location(res)
+        out.append(Finding(tool, rid, sev, msg, file_, line, path.name))
+    return out
+
+
 def parse_sarif(path: Path) -> list[Finding]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -152,18 +169,7 @@ def parse_sarif(path: Path) -> list[Finding]:
         return []
     out: list[Finding] = []
     for run in data.get("runs") or []:
-        driver = (run.get("tool") or {}).get("driver") or {}
-        tool = driver.get("name") or driver.get("fullName") or path.stem
-        rule_list = driver.get("rules") or []
-        rules_by_id = {r.get("id"): r for r in rule_list if isinstance(r, dict) and r.get("id")}
-        for res in run.get("results") or []:
-            if not isinstance(res, dict):
-                continue
-            rid = _rule_id(res, rule_list)
-            sev = apply_floor(tool, _result_severity(res, rules_by_id.get(rid, {})))
-            msg = ((res.get("message") or {}).get("text") or "").strip().replace("\n", " ")
-            file_, line = _location(res)
-            out.append(Finding(tool, rid, sev, msg, file_, line, path.name))
+        out.extend(_findings_from_run(run, path))
     return out
 
 

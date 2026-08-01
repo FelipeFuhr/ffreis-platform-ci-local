@@ -7,7 +7,7 @@ SCRIPTS := $(shell find scripts/ -maxdepth 1 -name '*.sh' ! -type l 2>/dev/null 
 PYFILES := $(shell find scripts/ -maxdepth 1 -name '*.py' ! -type l 2>/dev/null | sort)
 BATS_FILES := $(wildcard tests/*.bats)
 
-.PHONY: help ci lint shellcheck py-check shfmt-check test self-test ci-local drift sonarqube-up sonarqube-down
+.PHONY: help ci lint shellcheck py-check shfmt-check test self-test ci-local drift sonarqube-up sonarqube-down secrets-scan-staged
 
 help:
 	@echo "ffreis-platform-ci-local targets:"
@@ -36,6 +36,10 @@ shellcheck:
 py-check:
 	@echo "py_compile: checking $(words $(PYFILES)) python files"
 	@python3 -m py_compile $(PYFILES)
+
+secrets-scan-staged: ## Scan staged diff for secrets (used by base.yml pre-commit)
+	@command -v gitleaks >/dev/null 2>&1 && gitleaks protect --staged --redact \
+		|| echo "gitleaks not installed; skipping staged secret scan"
 
 shfmt-check:
 	@if command -v shfmt >/dev/null 2>&1; then \

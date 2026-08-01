@@ -114,12 +114,72 @@ fi
 # curl-download, or with a stray ~/.actrc in the user's home.
 runner_image="${ACT_RUNNER_IMAGE:-ghcr.io/catthehacker/ubuntu:act-22.04}"
 runner_image_24="${ACT_RUNNER_IMAGE_24:-ghcr.io/catthehacker/ubuntu:act-24.04}"
+
+tmp_dir=$(mktemp -d -t ci-local.XXXXXX)
+# git_cred_header_set is flipped by the credential-probe section below, once
+# github_token is known — declared here so cleanup() (referenced by the trap
+# set immediately, before that section runs) sees its later value at EXIT
+# time regardless.
+git_cred_header_set=no
+cleanup() {
+  # Must never leave a bearer token sitting in plaintext git config on disk —
+  # see the git-credential-wiring comment below for why this exists at all.
+  [[ "$git_cred_header_set" == yes ]] \
+    && git -C "$repo_root" config --local --unset-all "http.https://github.com/.extraheader" 2>/dev/null
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+# Resolve the repo's default branch. Prefer the local remote-HEAD ref (no
+# network call); fall back to the GitHub API via `gh`; then this workspace's
+# fleet default (see the workspace AGENTS.md "Branching model" — `main` unless
+# a repo explicitly uses `develop`, and `git symbolic-ref` already covers that
+# case when the local clone has it set).
+resolve_default_branch() {
+  local ref
+  if ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null); then
+    printf '%s' "${ref##*/}"
+    return 0
+  fi
+  if command -v gh >/dev/null 2>&1; then
+    local via_gh
+    via_gh=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)
+    if [[ -n "$via_gh" ]]; then
+      printf '%s' "$via_gh"
+      return 0
+    fi
+  fi
+  printf 'main'
+}
+act_default_branch="${ACT_DEFAULT_BRANCH:-$(resolve_default_branch)}"
+
 act_platform_args=(
   -P "ubuntu-latest=$runner_image"
   -P "ubuntu-22.04=$runner_image"
   -P "ubuntu-24.04=$runner_image_24"
   --container-architecture linux/amd64
+  --defaultbranch "$act_default_branch"
 )
+
+# act's own synthetic event payload is a bare `{}` when no `-e/--eventpath` is
+# given (confirmed via `act -v`: it logs "Writing entry to tarball
+# workflow/event.json len:2") — `--defaultbranch` above does NOT inject
+# `repository.default_branch` into it despite the flag's name; it's used for
+# other push/pull_request internals only. Any workflow step that reads
+# `github.event.repository.default_branch` directly — dorny/paths-filter with
+# no explicit `base:` input is the common case fleet-wide — then fails
+# immediately with "This action requires 'base' input to be configured or
+# 'repository.default_branch' to be set in the event payload", even though the
+# same workflow runs fine on real GitHub (where the event always carries it).
+# Synthesize a minimal event with just that field — safe to fully replace the
+# default `{}` since there was nothing else in it to preserve. Skipped if the
+# caller already passes their own `-e`/`--eventpath` via passthrough args.
+event_file=""
+if ! printf '%s\n' "${act_args[@]-}" | grep -qE '^(-e|--eventpath)$'; then
+  event_file="$tmp_dir/event.json"
+  printf '{"repository":{"default_branch":"%s"}}' "$act_default_branch" > "$event_file"
+  act_platform_args+=( --eventpath "$event_file" )
+fi
 
 # ── findings mode setup ──────────────────────────────────────────────────────
 # --bind so the scanners' workspace SARIF writes persist on the host; capture
@@ -137,8 +197,6 @@ if [[ "$findings" == yes ]]; then
 fi
 
 # ── credential probe ───────────────────────────────────────────────────────
-tmp_dir=$(mktemp -d -t ci-local.XXXXXX)
-trap 'rm -rf "$tmp_dir"' EXIT
 secrets_file="$tmp_dir/secrets"
 env_file="$tmp_dir/env"
 : > "$secrets_file"
@@ -194,9 +252,36 @@ probe_aws() {
 probe_aws
 
 # GitHub token via gh CLI.
+github_token=""
 if command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
-  printf 'GITHUB_TOKEN=%s\n' "$(gh auth token)" >> "$secrets_file"
+  github_token="$(gh auth token)"
+  printf 'GITHUB_TOKEN=%s\n' "$github_token" >> "$secrets_file"
   have_gh=yes
+fi
+
+# ── git credential wiring for act's local checkout emulation ────────────────
+# act's `actions/checkout` doesn't do a real authenticated git clone locally —
+# it copies or --bind-mounts the repo's files straight into the container,
+# skipping the HTTPS auth-header git config that a real GitHub Actions run
+# always leaves behind in the checkout for later steps to inherit. Any later
+# step that does its own raw `git fetch`/`ls-remote` against github.com —
+# e.g. dorny/paths-filter falling back to fetch extra depth for a merge-base
+# when `base:`/`repository.default_branch` alone isn't enough — then has
+# nothing to authenticate with and fails with "could not read Username for
+# 'https://github.com'", even though the exact same step works fine on real
+# GitHub. Replicate checkout's own mechanism directly on the host repo before
+# invoking act (its files get copied/mounted into the container either way,
+# config included) so any of its steps' git commands are transparently
+# authenticated — then remove it immediately after: this must never persist,
+# since a real GitHub Actions runner is thrown away after the job and this
+# repo isn't. Skipped with no GITHUB_TOKEN (script degrades to today's
+# behavior) or when act won't run at all (--lane-b-only).
+if [[ -n "$github_token" && "$lane_b" != only ]]; then
+  git_cred_auth="$(printf 'x-access-token:%s' "$github_token" | base64 | tr -d '\n')"
+  git -C "$repo_root" config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $git_cred_auth"
+  unset git_cred_auth
+  git_cred_header_set=yes
+  info "Wired a temporary git credential header for github.com (removed on exit)"
 fi
 
 # Extra secrets from user-managed env file.
@@ -215,6 +300,7 @@ fi
 # ── plan banner ────────────────────────────────────────────────────────────
 info "Repo: $repo_root"
 info "Mode: $mode"
+info "Default branch: $act_default_branch$( [[ -n "$event_file" ]] && echo " (synthesized event payload for repository.default_branch)" )"
 info "Detected credentials: AWS=$have_aws GH=$have_gh EXTRA_ENV=$have_extra"
 [[ "$have_aws"   == no ]] && info "  → AWS jobs may report 'credential-missing'. Set AWS_PROFILE or export AWS_* to enable."
 [[ "$have_gh"    == no ]] && info "  → GitHub-API jobs may fail. Run 'gh auth login' to enable."
