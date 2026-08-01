@@ -88,7 +88,8 @@ def render(rows, by_cat, n_err, inline, repo, auto_parallel):
         return
     if inline:
         print("\nMode: INLINE (small, single error-category) — fix directly now:")
-        for r in (r for r in rows if r.get("severity") == "ERROR") or rows:
+        error_rows = [r for r in rows if r.get("severity") == "ERROR"]
+        for r in error_rows or rows:
             print(f"  • {r.get('file')}:{r.get('line')} "
                   f"[{r.get('tool')}/{r.get('rule')}] {r.get('message')}")
             print(f"    fix: {r.get('fix')}")
@@ -129,12 +130,11 @@ def main():
     if args.json:
         print(json.dumps({
             "total": len(rows), "errors": n_err, "inline": inline,
-            "categories": {c: items for c, items in by_cat.items()},
+            "categories": dict(by_cat),
         }, indent=2))
-        return 0
+        return
 
     render(rows, by_cat, n_err, inline, args.repo, args.auto_parallel)
-    return 0
 
 
 if __name__ == "__main__":
