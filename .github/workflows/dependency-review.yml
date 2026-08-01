@@ -11,4 +11,4 @@ jobs:
   dependency-review:
     if: ${{ !github.event.pull_request.draft }}
     permissions: { contents: read, pull-requests: read }
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-dependency-review.yml@12c41714d56ff512e8093cd96a2ab11e60aced17
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-dependency-review.yml@8ff19efd329b76bce5ff5b98074b9aec74b239da # v1.8.1
