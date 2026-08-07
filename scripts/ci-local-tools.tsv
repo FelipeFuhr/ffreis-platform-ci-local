@@ -64,7 +64,7 @@ security-fs	A	security-fs	-	-
 # ── na: non-findings workflows (pass/fail gates + housekeeping) ──
 ci-local-coverage	na	ci-local-coverage	-	the drift-gate reusable workflow itself (meta)
 go-aux	na	^go-(test|fmt|build|docs|coverage|mutation|fuzz|container|quick-checks|cross-build-matrix|mod-tidy-check|deepsource-coverage)$	-	build/test/fmt gate — no findings to capture
-rust-aux	na	^rust-(test|fmt|build|docs|coverage|mutation|bench|container|quick-checks|affected|msrv|miri|proptest)$	-	build/test/fmt gate
+rust-aux	na	^rust-(test|fmt|build|docs|coverage|integration-coverage|mutation|bench|container|quick-checks|affected|msrv|miri|proptest)$	-	build/test/fmt gate
 python-aux	na	^python-(test|fmt|build|docs|coverage|mutation|bench|container|lock-sync|hypothesis)$	-	build/test/fmt gate
 tf-aux	na	^tf-(validate|fmt|plan|apply|destroy|docs|cost|drift|test-tidy)$	-	plan/apply/validate — not a findings scanner
 container-aux	na	^container-(build|sign|sbom)$	-	image build/sign/sbom — not a findings scanner
