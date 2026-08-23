@@ -26,6 +26,9 @@
 #                                       #   but produced no local finding (capture gap)
 #   run-ci-local.sh --remediate         # print an action plan (inline / queued
 #                                       #   fix-prompts) from the findings
+#   run-ci-local.sh --allow-credential-failures
+#                                       #   opt-in: downgrade a credential-only job
+#                                       #   failure to success; off by default (fail-closed)
 #   run-ci-local.sh -W path/to/wf.yml   # one workflow (passthrough)
 #   run-ci-local.sh -j go-lint          # one job (passthrough)
 #   run-ci-local.sh -- --rm             # everything after `--` goes to act
@@ -52,6 +55,8 @@ lane_b=no             # no | yes | only  — Lane-B direct-CLI scanners (codeql,
 sonar_backend=local   # local (SonarQube container) | cloud (SonarCloud PR analysis)
 strict=no             # gate on a SARIF-native scanner being UNACCOUNTED
 remediate=no          # emit a remediation plan after the findings report
+allow_credential_failures=no  # opt-in: downgrade a credential-only job
+                               #   failure to success (see post-parse gating)
 act_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,7 +69,8 @@ while [[ $# -gt 0 ]]; do
     --sonar-cloud) sonar_backend=cloud; shift ;;
     --strict) strict=yes; shift ;;
     --remediate) remediate=yes; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --allow-credential-failures) allow_credential_failures=yes; shift ;;
+    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; act_args+=("$@"); break ;;
     *)  act_args+=("$1"); shift ;;
   esac
@@ -238,9 +244,16 @@ probe_aws() {
   fi
   # Fall back to resolving from a profile. Default to ffreis-platform
   # (assumes platform-admin from ~/.aws/credentials ffreis-platform-base).
-  command -v aws >/dev/null 2>&1 || return
+  # `return 0` (not bare `return`): probe_aws is called as a bare top-level
+  # statement below, under `set -euo pipefail`. "No AWS CLI" / "sts call
+  # failed" are normal, expected outcomes here (have_aws just stays "no"),
+  # not a probe-function failure — a bare `return` would forward the failed
+  # command's nonzero status out of the function, and since the call site is
+  # unguarded, errexit would then silently kill the ENTIRE script with no
+  # die()/warn() message at all, before act ever runs.
+  command -v aws >/dev/null 2>&1 || return 0
   local profile="${AWS_PROFILE:-ffreis-platform}"
-  AWS_PROFILE="$profile" aws sts get-caller-identity >/dev/null 2>&1 || return
+  AWS_PROFILE="$profile" aws sts get-caller-identity >/dev/null 2>&1 || return 0
   # `export-credentials` exists in AWS CLI v2.13+; degrade gracefully.
   local creds
   creds=$(AWS_PROFILE="$profile" aws configure export-credentials --format env-no-export 2>/dev/null || true)
@@ -487,17 +500,47 @@ PY
 fi
 
 # ── post-parse: distinguish missing-credential from real failures ──────────
-missing=$(grep -E 'Required secret .* not (found|set)|secret .* (is required|is not set|not configured)' "$log_file" 2>/dev/null || true)
-if [[ -n "$missing" ]]; then
-  warn "Some failures appear to be missing-credential rather than real test failures:"
-  printf '%s\n' "$missing" | sort -u | sed 's/^/  /' >&2
-fi
+# Per-job correlation: a credential-missing marker excuses ONLY the specific
+# job whose own tagged log lines contain it — a marker anywhere else in the
+# log must never downgrade a different job's real failure (a whole-log grep
+# was the bug this replaces: one missing secret in job A silently passed a
+# real test/compile/lint failure in job B). Still fails closed by default —
+# even a genuinely credential-only failure stays a nonzero exit unless the
+# operator explicitly opts in with --allow-credential-failures.
+cred_re='Required secret .* not (found|set)|secret .* (is required|is not set|not configured)'
+if [[ "$act_status" -ne 0 ]]; then
+  failed_job_tags=$(grep -E 'Job failed' "$log_file" 2>/dev/null | grep -oE '^\[[^]]+\]' | sort -u || true)
+  real_jobs="" cred_jobs="" real_n=0 cred_n=0
+  while IFS= read -r tag; do
+    [[ -z "$tag" ]] && continue
+    if grep -F "$tag" "$log_file" 2>/dev/null | grep -qE "$cred_re"; then
+      cred_jobs+="  ${tag}"$'\n'
+      cred_n=$((cred_n + 1))
+    else
+      real_jobs+="  ${tag}"$'\n'
+      real_n=$((real_n + 1))
+    fi
+  done <<< "$failed_job_tags"
 
-if [[ "$act_status" -ne 0 && -z "$missing" ]]; then
-  die "act reported failures. Review the log above."
-elif [[ "$act_status" -ne 0 ]]; then
-  warn "act exited $act_status but failures look credential-related. Treating as success."
-  exit 0
+  if [[ "$real_n" -gt 0 ]]; then
+    warn "Real (non-credential) failure(s) in:"
+    printf '%s' "$real_jobs" >&2
+    die "act reported failures. Review the log above."
+  fi
+
+  if [[ "$cred_n" -eq 0 ]]; then
+    # act reported a nonzero status but no per-job "Job failed" marker
+    # matched (e.g. a startup/spawn-level error) — never guess; fail closed.
+    die "act reported failures. Review the log above."
+  fi
+
+  warn "Failure(s) confined to job(s) whose own log shows a missing-credential marker:"
+  printf '%s' "$cred_jobs" >&2
+  if [[ "$allow_credential_failures" == yes ]]; then
+    warn "--allow-credential-failures set: treating as success."
+    exit 0
+  fi
+  die "act reported failure(s) above, all credential-only. Re-run with --allow-credential-failures to treat this as success once you've confirmed nothing else is broken."
 fi
 
 info "All workflows passed locally."
