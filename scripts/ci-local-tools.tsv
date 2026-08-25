@@ -49,6 +49,7 @@ scorecard	cannot	scorecard	-	measures repo settings via the GitHub API — no lo
 snyk	cannot	snyk	-	needs SNYK_TOKEN + the Snyk SaaS backend
 claude-judge	cannot	claude-judge|claude-review	-	needs the Anthropic API and PR context
 dependency-review	cannot	dependency-review	-	GitHub-only API that diffs a PR's dependency manifest
+website-quality-live	cannot	website-quality-live	-	runs Lighthouse/pa11y/lychee/SEO against a LIVE deployed site-url — no local equivalent without a deployment
 ruff	A	python-lint	pyproject.toml requirements.txt	-
 shellcheck	A	shellcheck	-	-
 actionlint	A	actionlint	-	-
@@ -61,6 +62,11 @@ tfsec	A	tfsec|tf-security	-	-
 tflint	A	tf-lint	-	-
 hadolint	A	container-lint|hadolint	-	-
 security-fs	A	security-fs	-	-
+website-quality-markup	A	website-quality-markup	-	-
+website-quality-accessibility	A	website-quality-accessibility	-	-
+website-quality-links	A	website-quality-links	-	-
+website-quality-lighthouse	A	website-quality-lighthouse	-	-
+website-quality-seo	A	website-quality-seo	-	-
 # ── na: non-findings workflows (pass/fail gates + housekeeping) ──
 ci-local-coverage	na	ci-local-coverage	-	the drift-gate reusable workflow itself (meta)
 go-aux	na	^go-(test|fmt|build|docs|coverage|integration-coverage|mutation|fuzz|container|quick-checks|cross-build-matrix|mod-tidy-check|deepsource-coverage)$	-	build/test/fmt gate — no findings to capture
