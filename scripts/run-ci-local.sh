@@ -183,6 +183,11 @@ act_platform_args=(
   -P "ubuntu-latest=$runner_image"
   -P "ubuntu-22.04=$runner_image"
   -P "ubuntu-24.04=$runner_image_24"
+  # Fleet workflows use homelab label expressions such as
+  # [self-hosted, local].  `act` needs an image mapping for every label in
+  # that expression; without these aliases it skips jobs and exits green.
+  -P "self-hosted=$runner_image"
+  -P "local=$runner_image"
   --container-architecture linux/amd64
   --defaultbranch "$act_default_branch"
   --action-cache-path "$act_action_cache_path"
@@ -382,6 +387,13 @@ else
   act push "${act_platform_args[@]}" --secret-file "$secrets_file" --env-file "$env_file" "${act_args[@]}" 2>&1 | tee "$log_file"
   act_status=${PIPESTATUS[0]}
   set -e
+fi
+
+# `act` treats an unknown runner label as a skipped job and still returns
+# success. A skip is never evidence that the workflow passed: fail closed so
+# a new label must be mapped deliberately before local CI can be green.
+if grep -q 'Skipping unsupported platform' "$log_file"; then
+  die "act skipped job(s) for an unsupported runner platform; add an explicit -P runner mapping before treating local CI as green."
 fi
 
 # ── findings mode: collect, classify, run Lane B, aggregate, assert, gate ───

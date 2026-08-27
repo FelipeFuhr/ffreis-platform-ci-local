@@ -31,18 +31,14 @@ setup() {
 }
 
 @test "act caches use the cache tier and honour explicit per-path overrides" {
-  tmp="$(mktemp -d)"
+  tmp="$BATS_TEST_TMPDIR/act-cache-fixture"
   fixture_repo="$tmp/repo"
   bin="$tmp/bin"
   calls="$tmp/act.calls"
   mkdir -p "$fixture_repo/.github/workflows" "$bin" "$tmp/home/.cache-tier"
   git -C "$fixture_repo" init -q
-  git -C "$fixture_repo" config user.email test@example.invalid
-  git -C "$fixture_repo" config user.name test
   printf 'name: test\non: push\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps: []\n' \
     > "$fixture_repo/.github/workflows/test.yml"
-  git -C "$fixture_repo" add .github/workflows/test.yml
-  git -C "$fixture_repo" commit -qm fixture
 
   cat > "$bin/act" <<'EOF'
 #!/usr/bin/env bash
@@ -68,7 +64,11 @@ EOF
   [ "$status" -eq 0 ]
   run grep -F -- "--concurrent-jobs 1" "$calls"
   [ "$status" -eq 0 ]
-  [ ! -e "$REPO/.github/workflows/test.yml" ]
+  run grep -F -- '-P self-hosted=ghcr.io/catthehacker/ubuntu:act-22.04' "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F -- '-P local=ghcr.io/catthehacker/ubuntu:act-22.04' "$calls"
+  [ "$status" -eq 0 ]
+  [ "$fixture_repo" != "$REPO" ]
 
   : > "$calls"
   run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
@@ -104,7 +104,6 @@ EOF
     bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"must be a positive integer"* ]]
-  rm -rf "$tmp"
 }
 
 @test "drift gate: clean when every ref is classified, FAILs on an unknown ref" {
