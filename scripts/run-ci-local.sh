@@ -36,6 +36,18 @@
 #
 # Runner image is pinned to ghcr.io/catthehacker/ubuntu:act-22.04 by default.
 # Override via ACT_RUNNER_IMAGE env var if needed.
+#
+# `act`'s action checkout cache and cache-server data normally default below
+# ~/.cache.  On this workspace ~/.cache-tier is a stable indirection to the
+# cache disk; prefer it when present, while preserving the conventional cache
+# directory for hosts that do not use that layout.  CI_LOCAL_CACHE_DIR, or the
+# two per-path overrides below, make the destination explicit for CI hosts.
+#
+# `act` defaults to one job per available CPU. Its action-cache population is
+# not safe at that level of parallelism: first-use jobs can clone the same
+# action at once and fail with incomplete refs. Keep the local gate faithful
+# and deterministic by defaulting to one job; an operator may opt into a
+# known-safe positive value explicitly.
 
 set -euo pipefail
 
@@ -115,6 +127,20 @@ fi
 runner_image="${ACT_RUNNER_IMAGE:-ghcr.io/catthehacker/ubuntu:act-22.04}"
 runner_image_24="${ACT_RUNNER_IMAGE_24:-ghcr.io/catthehacker/ubuntu:act-24.04}"
 
+if [[ -n "${CI_LOCAL_CACHE_DIR:-}" ]]; then
+  ci_local_cache_dir="$CI_LOCAL_CACHE_DIR"
+elif [[ -d "$HOME/.cache-tier" || -L "$HOME/.cache-tier" ]]; then
+  ci_local_cache_dir="$HOME/.cache-tier"
+else
+  ci_local_cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}"
+fi
+act_action_cache_path="${CI_LOCAL_ACT_ACTION_CACHE_PATH:-$ci_local_cache_dir/act}"
+act_cache_server_path="${CI_LOCAL_ACT_CACHE_SERVER_PATH:-$ci_local_cache_dir/actcache}"
+act_concurrent_jobs="${CI_LOCAL_ACT_CONCURRENT_JOBS:-1}"
+[[ "$act_concurrent_jobs" =~ ^[1-9][0-9]*$ ]] \
+  || die "CI_LOCAL_ACT_CONCURRENT_JOBS must be a positive integer (got '$act_concurrent_jobs')."
+mkdir -p "$act_action_cache_path" "$act_cache_server_path"
+
 tmp_dir=$(mktemp -d -t ci-local.XXXXXX)
 # git_cred_header_set is flipped by the credential-probe section below, once
 # github_token is known — declared here so cleanup() (referenced by the trap
@@ -159,6 +185,9 @@ act_platform_args=(
   -P "ubuntu-24.04=$runner_image_24"
   --container-architecture linux/amd64
   --defaultbranch "$act_default_branch"
+  --action-cache-path "$act_action_cache_path"
+  --cache-server-path "$act_cache_server_path"
+  --concurrent-jobs "$act_concurrent_jobs"
 )
 
 # act's own synthetic event payload is a bare `{}` when no `-e/--eventpath` is
@@ -240,7 +269,11 @@ probe_aws() {
   # (assumes platform-admin from ~/.aws/credentials ffreis-platform-base).
   command -v aws >/dev/null 2>&1 || return
   local profile="${AWS_PROFILE:-ffreis-platform}"
-  AWS_PROFILE="$profile" aws sts get-caller-identity >/dev/null 2>&1 || return
+  # An unavailable/expired profile is informational: act can still run the
+  # jobs that do not need AWS.  Explicit success is required here because a
+  # bare `return` propagates the failed probe under `set -e` and aborts the
+  # whole harness before it reaches act.
+  AWS_PROFILE="$profile" aws sts get-caller-identity >/dev/null 2>&1 || return 0
   # `export-credentials` exists in AWS CLI v2.13+; degrade gracefully.
   local creds
   creds=$(AWS_PROFILE="$profile" aws configure export-credentials --format env-no-export 2>/dev/null || true)

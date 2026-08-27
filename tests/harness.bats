@@ -30,6 +30,83 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "act caches use the cache tier and honour explicit per-path overrides" {
+  tmp="$(mktemp -d)"
+  fixture_repo="$tmp/repo"
+  bin="$tmp/bin"
+  calls="$tmp/act.calls"
+  mkdir -p "$fixture_repo/.github/workflows" "$bin" "$tmp/home/.cache-tier"
+  git -C "$fixture_repo" init -q
+  git -C "$fixture_repo" config user.email test@example.invalid
+  git -C "$fixture_repo" config user.name test
+  printf 'name: test\non: push\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps: []\n' \
+    > "$fixture_repo/.github/workflows/test.yml"
+  git -C "$fixture_repo" add .github/workflows/test.yml
+  git -C "$fixture_repo" commit -qm fixture
+
+  cat > "$bin/act" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "-l" ]]; then
+  printf 'Stage Job ID Job name Workflow name Workflow file Events\n'
+  printf '0 lint lint test test.yml push\n'
+  exit 0
+fi
+printf '%s\n' "$*" >> "$ACT_CALLS"
+EOF
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$bin/actionlint"
+  # Exercise the optional-credential path: an expired/missing AWS profile
+  # must not abort the harness before it invokes act.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/aws"
+  chmod +x "$bin/act" "$bin/actionlint" "$bin/aws"
+
+  run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
+    bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--action-cache-path $tmp/home/.cache-tier/act" "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--cache-server-path $tmp/home/.cache-tier/actcache" "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--concurrent-jobs 1" "$calls"
+  [ "$status" -eq 0 ]
+  [ ! -e "$REPO/.github/workflows/test.yml" ]
+
+  : > "$calls"
+  run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
+    CI_LOCAL_CACHE_DIR="$tmp/cache-root" \
+    bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--action-cache-path $tmp/cache-root/act" "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--cache-server-path $tmp/cache-root/actcache" "$calls"
+  [ "$status" -eq 0 ]
+
+  : > "$calls"
+  run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
+    CI_LOCAL_ACT_ACTION_CACHE_PATH="$tmp/actions" \
+    CI_LOCAL_ACT_CACHE_SERVER_PATH="$tmp/server" \
+    bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--action-cache-path $tmp/actions" "$calls"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--cache-server-path $tmp/server" "$calls"
+  [ "$status" -eq 0 ]
+
+  : > "$calls"
+  run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
+    CI_LOCAL_ACT_CONCURRENT_JOBS=3 \
+    bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
+  [ "$status" -eq 0 ]
+  run grep -F -- "--concurrent-jobs 3" "$calls"
+  [ "$status" -eq 0 ]
+
+  run env HOME="$tmp/home" PATH="$bin:$PATH" ACT_CALLS="$calls" \
+    CI_LOCAL_ACT_CONCURRENT_JOBS=0 \
+    bash -c 'cd "$1" && exec "$2" --quick' bash "$fixture_repo" "$SCRIPTS/run-ci-local.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a positive integer"* ]]
+  rm -rf "$tmp"
+}
+
 @test "drift gate: clean when every ref is classified, FAILs on an unknown ref" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/wf"
   # a known + an unknown reusable-workflow reference
