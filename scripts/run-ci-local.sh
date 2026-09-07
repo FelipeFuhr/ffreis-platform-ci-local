@@ -26,6 +26,10 @@
 #                                       #   but produced no local finding (capture gap)
 #   run-ci-local.sh --remediate         # print an action plan (inline / queued
 #                                       #   fix-prompts) from the findings
+#   run-ci-local.sh --event pull_request  # act event to simulate (default: push);
+#                                       #   many fleet workflows are pull_request-
+#                                       #   triggered with branch filters that
+#                                       #   exclude feature branches on push
 #   run-ci-local.sh -W path/to/wf.yml   # one workflow (passthrough)
 #   run-ci-local.sh -j go-lint          # one job (passthrough)
 #   run-ci-local.sh -- --rm             # everything after `--` goes to act
@@ -52,6 +56,7 @@ lane_b=no             # no | yes | only  — Lane-B direct-CLI scanners (codeql,
 sonar_backend=local   # local (SonarQube container) | cloud (SonarCloud PR analysis)
 strict=no             # gate on a SARIF-native scanner being UNACCOUNTED
 remediate=no          # emit a remediation plan after the findings report
+act_event=push        # act's single positional event name (push, pull_request, …)
 act_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,7 +69,10 @@ while [[ $# -gt 0 ]]; do
     --sonar-cloud) sonar_backend=cloud; shift ;;
     --strict) strict=yes; shift ;;
     --remediate) remediate=yes; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --event)
+      [[ $# -ge 2 ]] || die "--event requires a value (e.g. --event pull_request)"
+      act_event="$2"; shift 2 ;;
+    -h|--help) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; act_args+=("$@"); break ;;
     *)  act_args+=("$1"); shift ;;
   esac
@@ -300,6 +308,7 @@ fi
 # ── plan banner ────────────────────────────────────────────────────────────
 info "Repo: $repo_root"
 info "Mode: $mode"
+info "Event: $act_event"
 info "Default branch: $act_default_branch$( [[ -n "$event_file" ]] && echo " (synthesized event payload for repository.default_branch)" )"
 info "Detected credentials: AWS=$have_aws GH=$have_gh EXTRA_ENV=$have_extra"
 [[ "$have_aws"   == no ]] && info "  → AWS jobs may report 'credential-missing'. Set AWS_PROFILE or export AWS_* to enable."
@@ -337,8 +346,8 @@ elif [[ "$mode" == quick ]]; then
   failures=0
   while IFS= read -r job; do
     [[ -z "$job" ]] && continue
-    info "→ act push -j $job"
-    if ! act push -j "$job" "${act_platform_args[@]}" --secret-file "$secrets_file" --env-file "$env_file" "${act_args[@]}" 2>&1 | tee -a "$log_file"; then
+    info "→ act $act_event -j $job"
+    if ! act "$act_event" -j "$job" "${act_platform_args[@]}" --secret-file "$secrets_file" --env-file "$env_file" "${act_args[@]}" 2>&1 | tee -a "$log_file"; then
       failures=$((failures + 1))
     fi
   done <<< "$runnable"
@@ -346,9 +355,22 @@ elif [[ "$mode" == quick ]]; then
 else
   act_ran=yes
   set +e
-  act push "${act_platform_args[@]}" --secret-file "$secrets_file" --env-file "$env_file" "${act_args[@]}" 2>&1 | tee "$log_file"
+  act "$act_event" "${act_platform_args[@]}" --secret-file "$secrets_file" --env-file "$env_file" "${act_args[@]}" 2>&1 | tee "$log_file"
   act_status=${PIPESTATUS[0]}
   set -e
+fi
+
+# jobs_ran: did act actually start/finish anything? A global act invocation
+# error (bad flag/event, act itself crashing) exits non-zero — or even zero —
+# without ever printing a per-job "Job succeeded"/"Job failed" line, and used
+# to slip through both the --findings classifier below (empty job run-state,
+# zero REAL-FAIL) and the plain-mode credential-soft-pass at the bottom of this
+# script. An empty run-state must never read as a pass, so gate on it directly
+# instead of only inferring it from downstream classification.
+jobs_ran=0
+if [[ "$act_ran" == yes ]]; then
+  jobs_ran=$(grep -cE 'Job (succeeded|failed)' "$log_file" 2>/dev/null || true)
+  jobs_ran=${jobs_ran:-0}
 fi
 
 # ── findings mode: collect, classify, run Lane B, aggregate, assert, gate ───
@@ -478,6 +500,8 @@ PY
     if [[ -n "$rem" ]]; then echo; python3 "$rem" "$cil" --repo "$repo_root" || true; fi
   fi
 
+  [[ "$act_ran" == yes && "$jobs_ran" -eq 0 ]] \
+    && die "act ran zero jobs (invocation error, or no job matched event '$act_event') — an empty job run-state is never a passing gate. Review the log above."
   [[ "${real_fail:-0}" -gt 0 ]] \
     && die "$real_fail job(s) had a REAL failure (not just a GitHub-only upload). See run-state above."
   [[ "$agg_rc" -ne 0 ]] && die "error-level findings present (see the report above)."
@@ -487,6 +511,13 @@ PY
 fi
 
 # ── post-parse: distinguish missing-credential from real failures ──────────
+# A zero-job run (act died on a global invocation error before starting
+# anything) must never fall into the credential-soft-pass below — check it
+# first, unconditionally of act_status, since act can occasionally exit 0
+# having matched no jobs at all (e.g. no workflow triggers on --event).
+[[ "$act_ran" == yes && "$jobs_ran" -eq 0 ]] \
+  && die "act ran zero jobs (invocation error, or no job matched event '$act_event') — an empty run is never a passing gate. Review the log above."
+
 missing=$(grep -E 'Required secret .* not (found|set)|secret .* (is required|is not set|not configured)' "$log_file" 2>/dev/null || true)
 if [[ -n "$missing" ]]; then
   warn "Some failures appear to be missing-credential rather than real test failures:"
