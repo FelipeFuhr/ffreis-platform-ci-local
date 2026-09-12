@@ -58,6 +58,24 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+# ── regression: a LOCAL reusable-workflow ref must be classifiable too ──
+# The drift gate reads `uses: ./.github/workflows/<name>.yml` the same way it
+# reads a fleet `ffreis-workflows-*` ref, so a repo-local reusable workflow
+# needs its own registry row. verify-compiler (a build-only compile gate, hence
+# lane=na) had none and hard-failed the pre-commit drift hook in its consumer.
+@test "drift gate: a repo-local verify-compiler ref classifies as lane=na" {
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/wf"
+  cat > "$tmp/wf/promote-compiler.yml" <<'EOF'
+jobs:
+  verify: { uses: ./.github/workflows/verify-compiler.yml }
+EOF
+  run python3 "$SCRIPTS/ci-local-drift.py" --registry "$SCRIPTS/ci-local-tools.tsv" \
+    --workflows "$tmp/wf" --enforce --no-color
+  rm -rf "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verify-compiler"*"lane=na"* ]]
+}
+
 @test "drift gate --defines: an unclassified reusable workflow a lib DEFINES fails" {
   tmp="$(mktemp -d)"; mkdir -p "$tmp/wf"
   printf 'on:\n  workflow_call:\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps: []\n' \

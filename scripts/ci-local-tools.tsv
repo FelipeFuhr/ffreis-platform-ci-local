@@ -77,4 +77,5 @@ container-aux	na	^container-(build|sign|sbom)$	-	image build/sign/sbom — not a
 binding-aux	na	^binding-(build|abi-parity|release)$	-	native binding build/release
 swift-aux	na	^swift-(build|format|lint)$	-	build/test/fmt gate — no findings to capture
 kotlin-aux	na	^kotlin-(build|lint|test)$	-	build/test/fmt gate — no findings to capture
+verify-compiler	na	^verify-compiler$	-	build-only compile gate — rebuilds every fleet site against a candidate compiler ref and reports pass/fail; emits no findings
 housekeeping	na	^(general-|devops-)?(release-please|release|stale|labeler|semantic-pr|lefthook|lefthook-complex|run-commands|website-dispatch|workflow-failure-alert|ci-failure-alert|promote-gate|quality-seo|quality-live|kb-sync|http-smoke|pr-summary|pr-size|pr-hygiene|pr-labeler|commit-messages|workflows-policy|pre-commit|sbom|automation|ai-standardize)$	-	housekeeping/orchestration — not a findings producer
