@@ -41,6 +41,7 @@ osv-scanner	A	osv-scanner	-	-
 clippy	A	rust-lint|clippy	Cargo.toml	-
 cargo-deny	A	rust-deny|cargo-deny	Cargo.toml	-
 cargo-audit	A	rust-security|cargo-audit	Cargo.toml	-
+clock-lint	A	rust-clock-lint|clock-lint	Cargo.toml	-
 pip-audit	A	pip-audit|python-security	pyproject.toml requirements.txt	-
 mobsfscan	A	swift-security|kotlin-security|mobsfscan	-	-
 codeql	B	codeql	-	codeql CLI not installed (run `gh extension install github/gh-codeql` or install the CodeQL CLI bundle)
