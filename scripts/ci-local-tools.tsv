@@ -71,6 +71,7 @@ website-quality-lighthouse	A	website-quality-lighthouse	-	-
 website-quality-seo	A	website-quality-seo	-	-
 # ── na: non-findings workflows (pass/fail gates + housekeeping) ──
 ci-local-coverage	na	ci-local-coverage	-	the drift-gate reusable workflow itself (meta)
+make-hygiene	na	^general-make-hygiene$	-	make-syntax hygiene gate — fails a Makefile whose inline '# comment' leaves trailing whitespace inside the value (GNU make strips the comment, not the whitespace, so a 40-hex SHA pin measures 42 and every URL built from it is malformed). Pass/fail, emits no findings; act runs the same auditor via the lefthook pre-commit tier.
 go-aux	na	^go-(test|fmt|build|docs|coverage|integration-coverage|mutation|fuzz|container|quick-checks|cross-build-matrix|mod-tidy-check|deepsource-coverage)$	-	build/test/fmt gate — no findings to capture
 rust-aux	na	^rust-(test|fmt|build|docs|coverage|integration-coverage|mutation|bench|container|quick-checks|affected|msrv|miri|proptest|lock-sync)$	-	build/test/fmt gate
 python-aux	na	^python-(test|fmt|build|docs|coverage|mutation|bench|container|lock-sync|hypothesis)$	-	build/test/fmt gate
